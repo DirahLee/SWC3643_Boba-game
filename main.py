@@ -13,6 +13,15 @@ class GameRunner:
         pygame.display.set_caption("Boba Panic: Cosmic Café")
         self.game = GameManager(self.screen)
         self.clock = pygame.time.Clock()
+        self.is_fullscreen = False
+
+    def toggle_fullscreen(self):
+        self.is_fullscreen = not self.is_fullscreen
+        if self.is_fullscreen:
+            self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.FULLSCREEN)
+        else:
+            self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+        self.game.screen = self.screen
 
     def run(self):
         while True:
@@ -23,7 +32,9 @@ class GameRunner:
                     sys.exit()
                     
                 elif event.type == pygame.KEYDOWN:
-                    if event.key == pygame.K_p:
+                    if event.key == pygame.K_f:
+                        self.toggle_fullscreen()
+                    elif event.key == pygame.K_p:
                         self.game.toggle_pause()
                     elif event.key == pygame.K_r:
                         self.game.reset_level()
