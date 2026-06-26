@@ -222,6 +222,10 @@ class GameManager:
         self.level = target_level
         self.reset(full_reset=True, targeted_level=target_level)
         self.state = "playing"
+        try:
+            pygame.mixer.music.unpause()
+        except Exception:
+            pass
 
     def reset_level(self):
         if self.hearts <= 0:
@@ -229,6 +233,10 @@ class GameManager:
         else:
             self.reset(full_reset=False, targeted_level=self.level)
         self.state = "playing"
+        try:
+            pygame.mixer.music.unpause()
+        except Exception:
+            pass
 
     def start_next_level(self):
         if self.level < 3:
@@ -236,6 +244,10 @@ class GameManager:
         self.reset(full_reset=False, targeted_level=self.level)
         self.state = "playing"
         self.message = self.get_text("msg_start")
+        try:
+            pygame.mixer.music.unpause()
+        except Exception:
+            pass
 
     def exit_to_menu(self):
         self.state = "menu"
@@ -250,8 +262,16 @@ class GameManager:
     def toggle_pause(self):
         if self.state == "playing":
             self.state = "paused"
+            try:
+                pygame.mixer.music.pause()
+            except Exception:
+                pass
         elif self.state == "paused":
             self.state = "playing"
+            try:
+                pygame.mixer.music.unpause()
+            except Exception:
+                pass
 
     def toggle_entity(self, index):
         if self.state != "playing" or self.tray.moving:

@@ -9,6 +9,17 @@ class GameRunner:
     def __init__(self):
         ensure_assets()
         pygame.init()
+        
+        # --- INSERT BACKGROUND MUSIC ---
+        try:
+            pygame.mixer.init()
+            pygame.mixer.music.load("Pix - Space travel - Pix.mp3")
+            pygame.mixer.music.set_volume(0.5)  # Adjust volume as desired (0.0 to 1.0)
+            pygame.mixer.music.play(-1)         # Loops indefinitely
+        except Exception as e:
+            print(f"Warning: Could not load or play background music: {e}")
+        # -------------------------------
+
         self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
         pygame.display.set_caption("Boba Panic: Cosmic Café")
         self.game = GameManager(self.screen)
