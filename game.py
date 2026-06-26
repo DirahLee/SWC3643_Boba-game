@@ -2,6 +2,7 @@
 import pygame
 import sys
 import random
+import math
 from constants import *
 from assets import load_image
 from entity import Entity
@@ -34,7 +35,7 @@ LANG = {
         "err_move": "Need Chef Bobby to move tray!",
         "err_full": "Tray full or wrong side!",
         "lose_heart": "Crash! Shield damaged!",
-        "no_lives": "Game Over! All shields depleted. Press ENTER to restart Level 1.",
+        "no_lives": "Game Over! All shields depleted. Press ENTER to restart",
         "next_level": "Next level ready! Press ENTER to continue.",
         "restart_hint": "Press 'R' to retry.",
         "meteor_warning": "Level 2 hazard: Meteor rain!",
@@ -82,14 +83,14 @@ LANG = {
         "score": "Markah",
         "level": "Tahap",
         "hearts": "Nyawa",
-        "win": "Pesanan Siap! ANDA MENANG SEMUA!",
+        "win": "Pesanan Siap! ANDA MENANG!",
         "timeout": "Masa Tamat! Pelanggan mengamuk!",
         "rule_boba": "Space-Cow makan Boba Pearls!",
         "rule_torch": "Space-Cow meletupkan dapur!",
         "err_move": "Perlu Chef Bobby untuk gerak!",
         "err_full": "Dulang penuh / silap tebing!",
         "lose_heart": "Tersentuh! Perisai rosak!",
-        "no_lives": "Permainan Tamat! Semua nyawa habis. Tekan ENTER ke Tahap 1.",
+        "no_lives": "Permainan Tamat! Semua nyawa habis. Tekan ENTER mula semula.",
         "next_level": "Tahap seterusnya sedia! Tekan ENTER.",
         "restart_hint": "Tekan 'R' to cuba lagi.",
         "meteor_warning": "Tahap 2: Hujan meteor aktif!",
@@ -134,6 +135,14 @@ class GameManager:
         self.meteor_spawn_timer = 0.0
         self.anomalies = []
         self.invuln_timer = 0.0  # Cooldown tracker to prevent machine-gun hit damage
+
+        self.menu_time = 0.0
+        self.menu_stars = [
+            {"x": random.randint(0, SCREEN_WIDTH), "y": random.randint(0, SCREEN_HEIGHT),
+             "speed": random.uniform(0.2, 0.8), "size": random.randint(1, 3),
+             "twinkle": random.uniform(0, 6.28)}
+            for _ in range(60)
+        ]
 
         self.state = "loading"
         self.loading_progress = 0
@@ -191,9 +200,12 @@ class GameManager:
         self.invuln_timer = 0.0
 
         if self.level == 3:
+            # Orbital anomalies: two portals circling a centre point with a safe/danger phase cycle
             self.anomalies = [
-                {"x": 340, "y": 150, "speed": 160, "direction": 1},
-                {"x": 460, "y": 450, "speed": 190, "direction": -1}
+                {"cx": 400, "cy": 310, "radius": 110, "angle": 0.0,
+                 "speed": 0.7, "x": 510.0, "y": 310.0, "phase_timer": 0.0},
+                {"cx": 400, "cy": 310, "radius": 70, "angle": math.pi,
+                 "speed": -1.0, "x": 330.0, "y": 310.0, "phase_timer": 2.5},
             ]
 
         self.left_bank_positions = [(60, 180), (150, 180), (60, 300), (150, 300)]
@@ -344,6 +356,12 @@ class GameManager:
                 self.state = "menu"
             return
 
+        if self.state == "menu":
+            self.menu_time += dt
+            for star in self.menu_stars:
+                star["y"] = (star["y"] + star["speed"]) % SCREEN_HEIGHT
+            return
+
         if self.state != "playing":
             return
 
@@ -381,20 +399,17 @@ class GameManager:
                     self.lose_life("lose_heart")
 
         elif self.level == 3:
+            PHASE_CYCLE = 5.0   # 2s safe + 3s danger per cycle
+            SAFE_WINDOW = 2.0
             for anomaly in self.anomalies:
-                anomaly["y"] += anomaly["speed"] * dt * anomaly["direction"]
-                
-                # Rigid containment constraints keeping anomalies safely inner-bound
-                if anomaly["y"] <= 100:
-                    anomaly["y"] = 100
-                    anomaly["direction"] = 1
-                elif anomaly["y"] >= 500:
-                    anomaly["y"] = 500
-                    anomaly["direction"] = -1
-                
-                if self.tray.rect.collidepoint(anomaly["x"], anomaly["y"]):
+                anomaly["angle"] += anomaly["speed"] * dt
+                anomaly["phase_timer"] = (anomaly["phase_timer"] + dt) % PHASE_CYCLE
+                anomaly["x"] = anomaly["cx"] + math.cos(anomaly["angle"]) * anomaly["radius"]
+                anomaly["y"] = anomaly["cy"] + math.sin(anomaly["angle"]) * anomaly["radius"]
+
+                is_safe = anomaly["phase_timer"] < SAFE_WINDOW
+                if not is_safe and self.tray.rect.collidepoint(anomaly["x"], anomaly["y"]):
                     if self.invuln_timer <= 0:
-                        anomaly["direction"] *= -1  # Instantly deflect course
                         self.lose_life("lose_heart")
 
         self.check_rules()
@@ -413,17 +428,100 @@ class GameManager:
             return
 
         if self.state == "menu":
-            self.screen.fill(COLOR_BG)
-            hint_txt = "Press [L] to Language | [F] to Fullscreen"
-            self.screen.blit(self.ui_font.render(hint_txt, True, (0, 255, 200)), (20, 20))
+            # Starfield background
+            if self.bg_images:
+                self.screen.blit(self.bg_images[0], (0, 0))
+            else:
+                self.screen.fill(COLOR_BG)
+
+            # Dark overlay for depth
+            overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+            overlay.fill((5, 5, 20, 140))
+            self.screen.blit(overlay, (0, 0))
+
+            t = self.menu_time
+
+            # Animated twinkling star particles
+            for star in self.menu_stars:
+                twinkle = (math.sin(t * 3.0 + star["twinkle"]) + 1) / 2
+                brightness = int(100 + 155 * twinkle)
+                pygame.draw.circle(self.screen, (brightness, brightness, brightness),
+                                   (int(star["x"]), int(star["y"])), star["size"])
+
+            # Left energy column — floating cyan boba orbs
+            for i in range(5):
+                bob_y = 215 + i * 62 + int(math.sin(t * 1.2 + i * 0.8) * 18)
+                glow_a = max(0, int(80 + 80 * math.sin(t * 2.0 + i)))
+                gs = pygame.Surface((36, 36), pygame.SRCALPHA)
+                pygame.draw.circle(gs, (0, 180, 255, glow_a), (18, 18), 14)
+                self.screen.blit(gs, (73, bob_y - 18))
+                pygame.draw.circle(self.screen, (0, 200, 255), (91, bob_y), 6)
+                if i < 4:
+                    next_y = 215 + (i + 1) * 62 + int(math.sin(t * 1.2 + (i + 1) * 0.8) * 18)
+                    pygame.draw.line(self.screen, (0, 80, 130), (91, bob_y + 7), (91, next_y - 7), 1)
+
+            # Right energy column — floating pink boba orbs
+            for i in range(5):
+                bob_y = 215 + i * 62 + int(math.sin(t * 1.4 + i * 0.9 + 1.6) * 18)
+                glow_a = max(0, int(80 + 80 * math.sin(t * 2.2 + i + 1)))
+                gs = pygame.Surface((36, 36), pygame.SRCALPHA)
+                pygame.draw.circle(gs, (255, 0, 128, glow_a), (18, 18), 14)
+                self.screen.blit(gs, (SCREEN_WIDTH - 109, bob_y - 18))
+                pygame.draw.circle(self.screen, (255, 0, 150), (SCREEN_WIDTH - 91, bob_y), 6)
+                if i < 4:
+                    next_y = 215 + (i + 1) * 62 + int(math.sin(t * 1.4 + (i + 1) * 0.9 + 1.6) * 18)
+                    pygame.draw.line(self.screen, (120, 0, 60), (SCREEN_WIDTH - 91, bob_y + 7), (SCREEN_WIDTH - 91, next_y - 7), 1)
+
+            # Orbiting boba pearls around the title band
+            orbit_cx, orbit_cy = SCREEN_WIDTH // 2, 118
+            for i in range(6):
+                angle = t * 0.55 + i * (math.pi * 2 / 6)
+                ox = orbit_cx + math.cos(angle) * 308
+                oy = orbit_cy + math.sin(angle) * 28
+                size = 5 if i % 2 == 0 else 3
+                color = (255, 0, 128) if i % 2 == 0 else (0, 255, 200)
+                pygame.draw.circle(self.screen, color, (int(ox), int(oy)), size)
+
+            # Neon title panel
+            panel_w, panel_h = 684, 76
+            panel_x = SCREEN_WIDTH // 2 - panel_w // 2
+            panel_surf = pygame.Surface((panel_w, panel_h), pygame.SRCALPHA)
+            panel_surf.fill((255, 0, 128, 18))
+            pygame.draw.rect(panel_surf, (255, 0, 128, 210), (0, 0, panel_w, panel_h), 2, border_radius=12)
+            pygame.draw.rect(panel_surf, (255, 0, 128, 60), (4, 4, panel_w - 8, panel_h - 8), 1, border_radius=9)
+            self.screen.blit(panel_surf, (panel_x, 82))
+
+            # Title glow shadow (4 directions)
+            for dx, dy in [(-3, 0), (3, 0), (0, -2), (0, 3)]:
+                shadow = self.title_font.render(self.get_text("title"), True, (110, 0, 55))
+                self.screen.blit(shadow, shadow.get_rect(center=(SCREEN_WIDTH // 2 + dx, 118 + dy)))
+
+            # Title main text
             title = self.title_font.render(self.get_text("title"), True, (255, 0, 128))
-            sub = self.font.render(self.get_text("subtitle"), True, (0, 255, 255))
-            self.screen.blit(title, title.get_rect(center=(SCREEN_WIDTH//2, 110)))
-            self.screen.blit(sub, sub.get_rect(center=(SCREEN_WIDTH//2, 160)))
+            self.screen.blit(title, title.get_rect(center=(SCREEN_WIDTH // 2, 118)))
+
+            # Subtitle with pulsing colour
+            pulse = (math.sin(t * 2.5) + 1) / 2
+            sub_color = (int(pulse * 60), int(190 + pulse * 65), 255)
+            sub = self.font.render(self.get_text("subtitle"), True, sub_color)
+            self.screen.blit(sub, sub.get_rect(center=(SCREEN_WIDTH // 2, 163)))
+
+            # Animated separator line
+            sep_a = int(70 + 60 * math.sin(t * 1.8))
+            sep_surf = pygame.Surface((520, 2), pygame.SRCALPHA)
+            sep_surf.fill((0, 255, 200, sep_a))
+            self.screen.blit(sep_surf, (SCREEN_WIDTH // 2 - 260, 183))
+
+            # Buttons
             self.btn_start.draw(self.screen, self.font, mouse_pos)
             self.btn_levels.draw(self.screen, self.font, mouse_pos)
             self.btn_controls.draw(self.screen, self.font, mouse_pos)
             self.btn_exit.draw(self.screen, self.font, mouse_pos)
+
+            # Hint text at bottom-centre
+            hint_txt = "Press [L] to Language | [F] to Fullscreen"
+            hint_surf = self.ui_font.render(hint_txt, True, (0, 255, 200))
+            self.screen.blit(hint_surf, hint_surf.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT - 18)))
             return
 
         if self.state == "level_select":
@@ -466,10 +564,53 @@ class GameManager:
                 self.screen.blit(self.meteor_img, self.meteor_img.get_rect(center=(meteor["x"], meteor["y"])))
             self.screen.blit(self.font.render(self.get_text("meteor_warning"), True, (255, 255, 0)), (20, 560))
         elif self.level == 3:
+            PHASE_CYCLE = 5.0
+            SAFE_WINDOW = 2.0
+            gt = pygame.time.get_ticks() / 1000.0
+
+            # Subtle orbit path guide rings
             for anomaly in self.anomalies:
-                pygame.draw.circle(self.screen, (150, 0, 255), (anomaly["x"], int(anomaly["y"])), 18)
-                pygame.draw.circle(self.screen, (0, 255, 255), (anomaly["x"], int(anomaly["y"])), 22, 2)
-            self.screen.blit(self.font.render(self.get_text("anomaly_warning"), True, (255, 0, 255)), (20, 560))
+                r = int(anomaly["radius"])
+                orbit_surf = pygame.Surface((r * 2 + 6, r * 2 + 6), pygame.SRCALPHA)
+                pygame.draw.circle(orbit_surf, (60, 0, 120, 55), (r + 3, r + 3), r, 1)
+                self.screen.blit(orbit_surf, (int(anomaly["cx"]) - r - 3, int(anomaly["cy"]) - r - 3))
+
+            # Draw each anomaly with phase-aware visuals
+            for anomaly in self.anomalies:
+                pt = anomaly["phase_timer"]
+                is_safe = pt < SAFE_WINDOW
+                ax, ay = int(anomaly["x"]), int(anomaly["y"])
+
+                if is_safe:
+                    # Ghost state — faded, harmless
+                    fade_a = int(35 + 40 * abs(math.sin(pt * math.pi / SAFE_WINDOW)))
+                    ghost = pygame.Surface((60, 60), pygame.SRCALPHA)
+                    pygame.draw.circle(ghost, (150, 0, 255, fade_a), (30, 30), 18)
+                    pygame.draw.circle(ghost, (0, 255, 255, fade_a + 25), (30, 30), 23, 3)
+                    self.screen.blit(ghost, (ax - 30, ay - 30))
+                else:
+                    # Active danger — pulsing solid portal
+                    dp = int(130 + 80 * math.sin(gt * 6))
+                    pygame.draw.circle(self.screen, (dp, 0, 255), (ax, ay), 18)
+                    pygame.draw.circle(self.screen, (0, 255, 255), (ax, ay), 23, 3)
+                    # Rotating spark ring
+                    for s in range(4):
+                        sa = gt * 4.0 + s * math.pi / 2
+                        sx = ax + int(math.cos(sa) * 29)
+                        sy = ay + int(math.sin(sa) * 29)
+                        pygame.draw.circle(self.screen, (255, 80, 255), (sx, sy), 3)
+
+            # Phase status HUD bar
+            if self.anomalies:
+                pt = self.anomalies[0]["phase_timer"]
+                is_safe = pt < SAFE_WINDOW
+                bar_color = (0, 230, 80) if is_safe else (255, 60, 60)
+                status_txt = "QUANTUM PHASE: SAFE — CROSS NOW!" if is_safe else "QUANTUM PHASE: UNSTABLE — WAIT!"
+                status_bg = pygame.Rect(12, 557, 560, 34)
+                pygame.draw.rect(self.screen, (0, 0, 0), status_bg, border_radius=6)
+                pygame.draw.rect(self.screen, bar_color, status_bg, 2, border_radius=6)
+                status_surf = self.font.render(status_txt, True, bar_color)
+                self.screen.blit(status_surf, status_surf.get_rect(center=status_bg.center))
 
         for e in self.entities:
             e.draw(self.screen)
@@ -512,11 +653,13 @@ class GameManager:
             end_lbl = self.title_font.render(self.message, True, (255, 255, 255))
             self.screen.blit(end_lbl, end_lbl.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT//2 - 50)))
             
-            if self.state == "win":
+            if self.state == "paused":
+                sub_lbl = self.font.render("Press 'P' to Resume", True, (0, 255, 200))
+            elif self.state == "win":
                 breakdown_txt = f"Level Score: +{self.level_score}  |  Total Score: {self.total_score}"
                 lbl_break = self.font.render(breakdown_txt, True, (255, 255, 0))
                 self.screen.blit(lbl_break, lbl_break.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT//2 + 5)))
-                sub_lbl = self.font.render("Press 'ENTER' to Advance / Press 'P' to Resume", True, (0, 255, 255))
+                sub_lbl = self.font.render("Press 'ENTER' to Advance", True, (0, 255, 255))
             elif self.state == "lose":
                 sub_lbl = self.font.render("Press 'ENTER' to Restart", True, (255, 50, 50))
 
